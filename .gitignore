@@ -1,0 +1,61 @@
+# --- IDE & Editor ---
+
+.vs/
+\*.suo
+\*.user
+\*.userosscache
+\*.vsidx
+
+# Rider
+
+.idea/
+
+# VS Code
+
+.vscode/
+
+# --- Build Artifacts ---
+
+bin/
+obj/
+
+# dll/exe/pdb from local builds
+
+\*.dll
+\*.exe
+\*.pdb
+\*.deps.json
+\*.runtimeconfig.json
+*.runtimeconfig.*
+
+# publish folder (if you introduce one)
+
+publish/
+
+# --- EF Core Migrations (optional) ---
+
+\*\*/Migrations/
+
+# --- Logs & OS files ---
+
+\*.log
+Thumbs.db
+Desktop.ini
+
+# --- User secrets & local overrides ---
+
+secrets.json
+appsettings.Development.json
+appsettings.Local.json
+
+# --- Docker override (optional) ---
+
+docker-compose.override.yml
+
+# --- OneDrive temp files (optional) ---
+
+\~$\*
+
+# --- Keep everything else (source, configs, docs) ---
+
+# Authorization/, Controllers/, Data/, DTOs/, Helpers/, Models/, Repositories/, Properties/, Program.cs, Dockerfile, docker-compose.yml, appsettings.json, api.csproj, README.md, etc.
