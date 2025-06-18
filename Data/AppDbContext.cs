@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace api.Data
 {
-    public class AppDbContext : IdentityDbContext<ApplicationUser>
+    public class AppDbContext : IdentityDbContext<User>
     {
         public DbSet<Device> Devices => Set<Device>();
         public DbSet<Telemetry> Telemetries => Set<Telemetry>();

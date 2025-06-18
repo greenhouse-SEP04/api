@@ -1,12 +1,21 @@
-﻿namespace api.DTOs
+﻿using System.Text.Json.Serialization;
+
+namespace api.DTOs
 {
-    public class TelemetryDto
+    public sealed class TelemetryDto
     {
-        public float Temperature { get; set; }
-        public float Humidity { get; set; }
-        public float Soil { get; set; }
-        public float Lux { get; set; }
-        public float Level { get; set; }
-        public bool Tamper { get; set; }
+        [JsonPropertyName("ts")] public string Ts { get; set; } = "";
+        [JsonPropertyName("cfgRev")] public string CfgRev { get; set; } = "";
+
+        [JsonPropertyName("temp")] public short Temperature { get; set; }
+        [JsonPropertyName("hum")] public short Humidity { get; set; }
+        [JsonPropertyName("soil")] public short Soil { get; set; }
+        [JsonPropertyName("lux")] public ushort Lux { get; set; }
+        [JsonPropertyName("lvl")] public ushort Level { get; set; }
+
+        [JsonPropertyName("motion")] public bool Motion { get; set; }
+        [JsonPropertyName("tamper")] public bool Tamper { get; set; }
+
+        [JsonPropertyName("accel")] public short[] Accel { get; set; } = new short[3];
     }
 }

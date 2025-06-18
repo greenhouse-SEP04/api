@@ -2,8 +2,10 @@
 
 namespace api.Models
 {
-    public class ApplicationUser : IdentityUser
+    public class User : IdentityUser
     {
+        public bool IsFirstLogin { get; set; } = true;
+
         public ICollection<Device>? Devices { get; set; }
     }
 }

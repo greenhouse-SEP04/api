@@ -30,8 +30,13 @@ namespace api.Controllers
                 Soil = dto.Soil,
                 Lux = dto.Lux,
                 Level = dto.Level,
+                Motion = dto.Motion,
                 Tamper = dto.Tamper,
-                Timestamp = DateTime.UtcNow
+                AccelX = dto.Accel[0],
+                AccelY = dto.Accel[1],
+                AccelZ = dto.Accel[2],
+                CfgRev = dto.CfgRev,
+                Timestamp = DateTime.TryParse(dto.Ts, out var ts) ? ts : DateTime.UtcNow
             };
             await _tele.AddAsync(t);
             await _tele.SaveAsync();

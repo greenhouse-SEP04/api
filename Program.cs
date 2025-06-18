@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>(opts => {
+builder.Services.AddIdentity<User, IdentityRole>(opts => {
     opts.Password.RequireNonAlphanumeric = false;
     opts.Password.RequireUppercase = false;
 }).AddEntityFrameworkStores<AppDbContext>()
