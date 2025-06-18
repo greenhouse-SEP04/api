@@ -4,6 +4,7 @@ using api.Models;
 using api.Repositories.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace api.Controllers
 {
@@ -43,12 +44,24 @@ namespace api.Controllers
             return Ok();
         }
 
-        [HttpGet]
-        [Authorize]
-        public async Task<IActionResult> Get([FromQuery] string dev, int limit = 100)
+        // ─────────────────────────────────────────────────────────────
+        // 5. TELEMETRY  – admins, owners, and the Worker token
+        [HttpGet("{mac}/telemetry")]
+        [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User},{UserRoles.Worker}")]
+        public async Task<IActionResult> Telemetry(string mac, int limit = 100)
         {
-            if (User.IsInRole(UserRoles.Device) && User.Identity?.Name != dev) return Forbid();
-            var data = await _tele.GetLatestAsync(dev, limit);
+            var dev = await _dev.GetAsync(mac);
+            if (dev == null) return NotFound();
+
+            bool isAdmin = User.IsInRole(UserRoles.Admin);
+            bool isOwner = dev.OwnerId != null &&
+                            User.FindFirstValue(ClaimTypes.NameIdentifier) == dev.OwnerId;
+            bool isWorker = User.IsInRole(UserRoles.Worker);
+
+            if (!(isAdmin || isOwner || isWorker))
+                return Forbid();
+
+            var data = await _tele.GetLatestAsync(mac, limit);
             return Ok(data);
         }
     }

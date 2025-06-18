@@ -17,11 +17,12 @@ namespace api.Controllers
         public SettingsController(ISettingsRepository s, IDeviceRepository d) { _settings = s; _devices = d; }
 
         [HttpGet]
-        [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User},{UserRoles.Device}")]
+        [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User},{UserRoles.Device},{UserRoles.Worker}")]
         public async Task<IActionResult> Get([FromQuery] string? dev)
         {
             bool isDevice =
                 User.IsInRole(UserRoles.Device);
+            bool isWorker = User.IsInRole(UserRoles.Worker);
 
             /* ── If the caller is a board token and left ?dev= empty,
                    assume they want their own settings. ──────────────── */
@@ -46,7 +47,7 @@ namespace api.Controllers
                                 string.Equals(User.Identity?.Name, dev,
                                               StringComparison.OrdinalIgnoreCase);
 
-            if (!(isAdmin || isOwner || isSameDevice))
+            if (!(isAdmin || isOwner || isSameDevice || isWorker))
                 return Forbid();
 
             /* ── Fetch & return settings ────────────────────────────── */

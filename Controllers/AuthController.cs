@@ -4,6 +4,7 @@ using api.Helpers;
 using api.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 
 namespace api.Controllers
@@ -27,7 +28,7 @@ namespace api.Controllers
 
         /* ───────────── Device SELF-REGISTER ───────────────────────── */
         [HttpPost("register/device")]
-        public async Task<IActionResult> RegisterDevice(DeviceDto dto)
+        public async Task<IActionResult> RegisterDevice(CredentialsDto dto)
         {
             // 1) username (MAC) already taken?
             if (await _users.FindByNameAsync(dto.Username) is not null)
@@ -58,23 +59,56 @@ namespace api.Controllers
             return Created("/v1/auth/login", new { token });
         }
 
-        /* ───────────── GENERIC LOGIN  ────────────────────────────────── */
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDto dto)
+
+        /* ───────────── Worker SELF-REGISTER ───────────────────────── */
+        [HttpPost("register/worker")]
+        public async Task<IActionResult> RegisterWorker(CredentialsDto dto)
         {
-            var user = await _users.FindByNameAsync(dto.Username);
-            if (user is null ||
-                !await _users.CheckPasswordAsync(user, dto.Password))
-                return Unauthorized();
+            // 1) username (MAC) already taken?
+            if (await _users.FindByNameAsync(dto.Username) is not null)
+                return Conflict($"Worker {dto.Username} already registered.");
 
-            var roles = await _users.GetRolesAsync(user);
-            var claims = new List<Claim>
+            // 2) create identity as Device
+            var user = new User { UserName = dto.Username };
+            var result = await _users.CreateAsync(user, dto.Password);
+            if (!result.Succeeded) return BadRequest(result.Errors);
+
+            await _users.AddToRoleAsync(user, UserRoles.Worker);
+
+            // 4) build token
+            var claims = new[]
             {
-                new(ClaimTypes.Name,           user.UserName!),
-                new(ClaimTypes.NameIdentifier, user.Id)
-            }.Concat(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+                new Claim(ClaimTypes.Name,  user.UserName!),
+                new Claim(ClaimTypes.Role,  UserRoles.Worker)
+            };
 
-            return Ok(new { token = _jwt.Generate(claims) });
+            var token = _jwt.Generate(claims);
+            return Created("/v1/auth/login", new { token });
         }
+
+        /* ───────────── GENERIC LOGIN  ────────────────────────────────── */
+        [HttpPost("login/worker")]
+        public IActionResult WorkerLogin(
+    CredentialsDto dto,
+    [FromServices] IOptions<CredentialsDto> cfg)
+        {
+            var wc = cfg.Value;
+
+            //  1. Verify the shared secret
+            if (!string.Equals(dto.Username, wc.Username, StringComparison.OrdinalIgnoreCase) ||
+                dto.Password != wc.Password)
+                return Unauthorized("Worker credentials invalid.");
+
+            //  2. Mint a token that carries ONLY the Worker role
+            var claims = new[]
+            {
+        new Claim(ClaimTypes.Name, wc.Username),
+        new Claim(ClaimTypes.Role, UserRoles.Worker)
+    };
+
+            var token = _jwt.Generate(claims);
+            return Ok(new { token });
+        }
+
     }
 }

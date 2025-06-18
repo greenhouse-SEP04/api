@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using api.Data;
+using api.DTOs;
 using api.Helpers;
 using api.Models;
 using api.Repositories.EfCore;
@@ -20,6 +21,8 @@ builder.Services.AddIdentity<User, IdentityRole>(opts => {
     opts.Password.RequireUppercase = false;
 }).AddEntityFrameworkStores<AppDbContext>()
   .AddDefaultTokenProviders();
+builder.Services.Configure<Credentials>(
+    builder.Configuration.GetSection("WorkerCredentials"));
 
 // JWT setup
 var jwt = builder.Configuration.GetSection("JWT");

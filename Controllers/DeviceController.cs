@@ -81,24 +81,4 @@ public class DeviceController : ControllerBase
         return Ok(new { active });
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // 5. TELEMETRY  – admins, owners, and the Worker token
-    [HttpGet("{mac}/telemetry")]
-    [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
-    public async Task<IActionResult> Telemetry(string mac, int limit = 100)
-    {
-        var dev = await _repo.GetAsync(mac);
-        if (dev == null) return NotFound();
-
-        bool isAdmin = User.IsInRole(UserRoles.Admin);
-        bool isOwner = dev.OwnerId != null &&
-                        User.FindFirstValue(ClaimTypes.NameIdentifier) == dev.OwnerId;
-
-        if (!(isAdmin || isOwner))
-            return Forbid();
-
-        var data = await _tele.GetLatestAsync(mac, limit);
-        return Ok(data);
-    }
-
 }
