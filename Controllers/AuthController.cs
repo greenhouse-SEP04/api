@@ -2,7 +2,6 @@
 using api.DTOs;
 using api.Helpers;
 using api.Models;
-using api.Repositories.Interfaces;      // ← NEW
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -26,9 +25,9 @@ namespace api.Controllers
             _devices = d;
         }
 
-        /* ───────────── DEVICE SELF-REGISTER ───────────────────────── */
+        /* ───────────── Device SELF-REGISTER ───────────────────────── */
         [HttpPost("register/device")]
-        public async Task<IActionResult> RegisterDevice(DeviceSelfRegisterDto dto)
+        public async Task<IActionResult> RegisterDevice(DeviceDto dto)
         {
             // 1) username (MAC) already taken?
             if (await _users.FindByNameAsync(dto.Username) is not null)
@@ -78,7 +77,4 @@ namespace api.Controllers
             return Ok(new { token = _jwt.Generate(claims) });
         }
     }
-    public record DeviceSelfRegisterDto(string Username /* MAC */,
-                                    string Password);
-
 }

@@ -19,7 +19,7 @@ public class DeviceController : ControllerBase
     //    • Admin gets everything
     //    • Regular user gets only own devices
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
     public async Task<IActionResult> List()
     {
         if (User.IsInRole(UserRoles.Admin))
@@ -47,7 +47,7 @@ public class DeviceController : ControllerBase
     // ─────────────────────────────────────────────────────────────
     // 3. DELETE  (Admin or owner)
     [HttpDelete("{mac}")]
-    [Authorize]
+    [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
     public async Task<IActionResult> Delete(string mac)
     {
         var dev = await _repo.GetAsync(mac);
@@ -66,7 +66,7 @@ public class DeviceController : ControllerBase
     // ─────────────────────────────────────────────────────────────
     // 4. ACTIVE?   – last telemetry within 1 h
     [HttpGet("{mac}/active")]
-    [Authorize]
+    [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
     public async Task<IActionResult> IsActive(string mac)
     {
         var dev = await _repo.GetAsync(mac);
@@ -82,20 +82,23 @@ public class DeviceController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 5. TELEMETRY  – owners & admins
+    // 5. TELEMETRY  – admins, owners, and the Worker token
     [HttpGet("{mac}/telemetry")]
-    [Authorize]
+    [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
     public async Task<IActionResult> Telemetry(string mac, int limit = 100)
     {
         var dev = await _repo.GetAsync(mac);
         if (dev == null) return NotFound();
 
-        bool adminOrOwner =
-            User.IsInRole(UserRoles.Admin) ||
-            User.FindFirstValue(ClaimTypes.NameIdentifier) == dev.OwnerId;
-        if (!adminOrOwner) return Forbid();
+        bool isAdmin = User.IsInRole(UserRoles.Admin);
+        bool isOwner = dev.OwnerId != null &&
+                        User.FindFirstValue(ClaimTypes.NameIdentifier) == dev.OwnerId;
+
+        if (!(isAdmin || isOwner))
+            return Forbid();
 
         var data = await _tele.GetLatestAsync(mac, limit);
         return Ok(data);
     }
+
 }

@@ -17,35 +17,45 @@ namespace api.Controllers
         public SettingsController(ISettingsRepository s, IDeviceRepository d) { _settings = s; _devices = d; }
 
         [HttpGet]
-        [Authorize]
+        [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User},{UserRoles.Device}")]
         public async Task<IActionResult> Get([FromQuery] string? dev)
         {
+            bool isDevice =
+                User.IsInRole(UserRoles.Device);
+
+            /* ── If the caller is a board token and left ?dev= empty,
+                   assume they want their own settings. ──────────────── */
+            if (string.IsNullOrWhiteSpace(dev) && isDevice)
+                dev = User.Identity?.Name;
+
             if (string.IsNullOrWhiteSpace(dev))
                 return BadRequest("Query parameter 'dev' is required.");
 
-            /* ── Does the device exist? ───────────────────────────── */
+            /* ── Does the device exist? ──────────────────────────────── */
             var device = await _devices.GetAsync(dev);
-            if (device is null) return NotFound($"Device {dev} not found.");
+            if (device is null)
+                return NotFound($"Device {dev} not found.");
 
-            /* ── Access control ───────────────────────────────────── */
+            /* ── Authorisation matrix ───────────────────────────────── */
             bool isAdmin = User.IsInRole(UserRoles.Admin);
+
             bool isOwner = device.OwnerId != null &&
-                                User.FindFirstValue(ClaimTypes.NameIdentifier) == device.OwnerId;
-            bool isSameDevice = User.IsInRole(UserRoles.Device) &&
+                           User.FindFirstValue(ClaimTypes.NameIdentifier) == device.OwnerId;
+
+            bool isSameDevice = isDevice &&
                                 string.Equals(User.Identity?.Name, dev,
                                               StringComparison.OrdinalIgnoreCase);
 
             if (!(isAdmin || isOwner || isSameDevice))
                 return Forbid();
 
-            /* ── Fetch & return settings ──────────────────────────── */
+            /* ── Fetch & return settings ────────────────────────────── */
             var s = await _settings.GetAsync(dev);
             return s is null ? NotFound() : Ok(s);
         }
 
-
         [HttpPut]
-        [Authorize]
+        [Authorize(Roles = $"{UserRoles.Admin},{UserRoles.User}")]
         public async Task<IActionResult> Put([FromQuery] string dev, SettingsDto dto)
         {
             var device = await _devices.GetAsync(dev);
