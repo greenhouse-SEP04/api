@@ -10,26 +10,24 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 5
 
   api:
     build: .
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
-      # ASP-NET reads “ConnectionStrings:DefaultConnection” exactly like this:
       ConnectionStrings__DefaultConnection: |
         Host=db;Port=5432;Database=greenhouse;Username=postgres;Password=postgres
       JWT__ValidIssuer:   GreenhouseApi
       JWT__ValidAudience: GreenhouseApiUsers
       JWT__Secret:        CHANGE_ME_FOR_PROD
-    # optional: make sure EF Core finishes its first migration after DB is ready
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 10s
-      retries: 10
-      start_period: 20s
-
-volumes:
-  pgdata:
+      # worker seed account (pulled by DbSeeder)
+      WorkerCredentials__Username: ml-worker
+      WorkerCredentials__Password: Super!Secure!PW

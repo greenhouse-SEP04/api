@@ -1,6 +1,7 @@
 ﻿using api.Authorization;
 using api.DTOs;
 using api.Helpers;
+using api.Infrastructure;
 using api.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -15,100 +16,120 @@ namespace api.Controllers
     {
         private readonly UserManager<User> _users;
         private readonly JwtTokenHelper _jwt;
-        private readonly IDeviceRepository _devices;   // ← NEW
+        private readonly IDeviceRepository _devices;      // if you still need it
+        private readonly WorkerCredentials _workerCreds;  // ← NEW
 
-        public AuthController(UserManager<User> u,
-                              JwtTokenHelper j,
-                              IDeviceRepository d)          // ← NEW
+        public AuthController(UserManager<User> users,
+                              JwtTokenHelper jwt,
+                              IDeviceRepository devices,
+                              IOptions<WorkerCredentials> cfg)   // ← NEW
         {
-            _users = u;
-            _jwt = j;
-            _devices = d;
+            _users = users;
+            _jwt = jwt;
+            _devices = devices;
+            _workerCreds = cfg.Value;     // store once
         }
 
-        /* ───────────── Device SELF-REGISTER ───────────────────────── */
-        [HttpPost("register/device")]
-        public async Task<IActionResult> RegisterDevice(CredentialsDto dto)
+        /* ───────────── Unified REGISTER ──────────────────────────────── */
+        /* call with ?role=admin|user|device|worker                       */
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromQuery] string? role, Credentials dto)
         {
-            // 1) username (MAC) already taken?
-            if (await _users.FindByNameAsync(dto.Username) is not null)
-                return Conflict($"MAC {dto.Username} already registered.");
+            var r = role?.Trim().ToLowerInvariant();
 
-            // 2) create identity as Device
-            var user = new User { UserName = dto.Username };
-            var result = await _users.CreateAsync(user, dto.Password);
+            if (r is not ("admin" or "user" or "device" or "worker"))
+                return BadRequest("Query string ?role must be admin, user, device, or worker.");
+
+            /* 1️⃣  Username already taken? */
+            if (await _users.FindByNameAsync(dto.Username) is not null)
+                return Conflict($"{dto.Username} already registered.");
+
+            /* 2️⃣  Create Identity user */
+            var newUser = new User { UserName = dto.Username };
+            var result = await _users.CreateAsync(newUser, dto.Password);
             if (!result.Succeeded) return BadRequest(result.Errors);
 
-            await _users.AddToRoleAsync(user, UserRoles.Device);
-
-            // 3) ensure Device entity exists
-            if (!await _devices.ExistsAsync(dto.Username))
+            /* 3️⃣  Attach role-specific data */
+            switch (r)
             {
-                await _devices.AddAsync(new Device { Mac = dto.Username });
-                await _devices.SaveAsync();
+                case "admin":
+                    await _users.AddToRoleAsync(newUser, UserRoles.Admin);
+                    break;
+
+                case "user":
+                    await _users.AddToRoleAsync(newUser, UserRoles.User);
+                    break;
+
+                case "device":
+                    await _users.AddToRoleAsync(newUser, UserRoles.Device);
+
+                    // ensure Device row exists
+                    if (!await _devices.ExistsAsync(dto.Username))
+                    {
+                        await _devices.AddAsync(new Device { Mac = dto.Username });
+                        await _devices.SaveAsync();
+                    }
+                    break;
+
+                case "worker":
+                    await _users.AddToRoleAsync(newUser, UserRoles.Worker);
+                    break;
             }
 
-            // 4) build token
+            /* 4️⃣  Build token */
             var claims = new[]
             {
-                new Claim(ClaimTypes.Name,  user.UserName!),
-                new Claim(ClaimTypes.Role,  UserRoles.Device)
-            };
-
-            var token = _jwt.Generate(claims);
-            return Created("/v1/auth/login", new { token });
-        }
-
-
-        /* ───────────── Worker SELF-REGISTER ───────────────────────── */
-        [HttpPost("register/worker")]
-        public async Task<IActionResult> RegisterWorker(CredentialsDto dto)
+        new Claim(ClaimTypes.Name, newUser.UserName!),
+        new Claim(ClaimTypes.Role, r switch
         {
-            // 1) username (MAC) already taken?
-            if (await _users.FindByNameAsync(dto.Username) is not null)
-                return Conflict($"Worker {dto.Username} already registered.");
-
-            // 2) create identity as Device
-            var user = new User { UserName = dto.Username };
-            var result = await _users.CreateAsync(user, dto.Password);
-            if (!result.Succeeded) return BadRequest(result.Errors);
-
-            await _users.AddToRoleAsync(user, UserRoles.Worker);
-
-            // 4) build token
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.Name,  user.UserName!),
-                new Claim(ClaimTypes.Role,  UserRoles.Worker)
-            };
-
-            var token = _jwt.Generate(claims);
-            return Created("/v1/auth/login", new { token });
-        }
-
-        /* ───────────── GENERIC LOGIN  ────────────────────────────────── */
-        [HttpPost("login/worker")]
-        public IActionResult WorkerLogin(
-    CredentialsDto dto,
-    [FromServices] IOptions<CredentialsDto> cfg)
-        {
-            var wc = cfg.Value;
-
-            //  1. Verify the shared secret
-            if (!string.Equals(dto.Username, wc.Username, StringComparison.OrdinalIgnoreCase) ||
-                dto.Password != wc.Password)
-                return Unauthorized("Worker credentials invalid.");
-
-            //  2. Mint a token that carries ONLY the Worker role
-            var claims = new[]
-            {
-        new Claim(ClaimTypes.Name, wc.Username),
-        new Claim(ClaimTypes.Role, UserRoles.Worker)
+            "admin"  => UserRoles.Admin,
+            "user"   => UserRoles.User,
+            "device" => UserRoles.Device,
+            _        => UserRoles.Worker
+        })
     };
 
             var token = _jwt.Generate(claims);
-            return Ok(new { token });
+            return Created("/v1/auth/login", new { token });
         }
+
+
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(Credentials dto)
+        {
+            IEnumerable<Claim> claims;
+
+            /* 1️ Worker secret? */
+            if (string.Equals(dto.Username, _workerCreds.Username,
+                              StringComparison.OrdinalIgnoreCase) &&
+                dto.Password == _workerCreds.Password)
+            {
+                claims = new[]
+                {
+            new Claim(ClaimTypes.Name, _workerCreds.Username),
+            new Claim(ClaimTypes.Role, UserRoles.Worker)
+        };
+            }
+            else
+            {
+                /* 2️ Identity users */
+                var user = await _users.FindByNameAsync(dto.Username);
+                if (user is null || !await _users.CheckPasswordAsync(user, dto.Password))
+                    return Unauthorized();
+
+                var roles = await _users.GetRolesAsync(user);
+                claims = new List<Claim>
+        {
+            new(ClaimTypes.Name,           user.UserName!),
+            new(ClaimTypes.NameIdentifier, user.Id)
+        }.Concat(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+            }
+
+            return Ok(new { token = _jwt.Generate(claims) });
+        }
+
+
 
     }
 }

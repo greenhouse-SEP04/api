@@ -1,23 +1,24 @@
-############  build stage  ################################
+######################  build stage  ###########################
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# copy csproj, restore first for better build caching
 COPY ["api.csproj", "."]
 RUN dotnet restore
 
-# copy the remaining source and publish
 COPY . .
 RUN dotnet publish -c Release -o /app/publish
 
-############  runtime stage  ##############################
+######################  runtime stage  #########################
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
 COPY --from=build /app/publish .
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# listen on 8080 inside the container
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DB_HOST=db \
+    DB_PORT=5432
+
 EXPOSE 8080
-
-ENTRYPOINT ["dotnet", "api.dll"]
+ENTRYPOINT ["/entrypoint.sh"]
