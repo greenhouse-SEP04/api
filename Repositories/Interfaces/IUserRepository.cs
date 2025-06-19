@@ -9,6 +9,5 @@ namespace api.Repositories.Interfaces
         Task AddAsync(User user, string password);
         Task UpdateAsync(User user);
         Task DeleteAsync(User user);
-        Task SaveAsync();      // optional – or rely on UserManager
     }
 }

@@ -1,6 +1,5 @@
 ﻿using api.Authorization;
 using api.Data;
-using api.DTOs;
 using api.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,22 +7,28 @@ using Microsoft.Extensions.Options;
 
 namespace api.Infrastructure;
 
+/// <summary>
+///     Populates the database with a complete demo scenario:
+///     • 1 Admin   (admin/Admin#123)
+///     • 2 Users   (alice/Alice#123, bob/Bob#123)
+///     • 4 Devices – some assigned, some un‑assigned
+///     • Telemetry history so that two devices are "active" (≤1h) and two "inactive"
+/// </summary>
 public static class DbSeeder
 {
     public static async Task SeedAsync(IServiceProvider services)
     {
-        // resolve everything we need
-        var db = services.GetRequiredService<AppDbContext>();        // your DbContext
+        var db = services.GetRequiredService<AppDbContext>();
         var users = services.GetRequiredService<UserManager<User>>();
         var roles = services.GetRequiredService<RoleManager<IdentityRole>>();
         var wc = services.GetRequiredService<IOptions<WorkerCredentials>>().Value;
         var logger = services.GetRequiredService<ILoggerFactory>()
-                                .CreateLogger("DbSeeder");
+                              .CreateLogger("DbSeeder");
 
-        /* 1) Apply pending migrations */
+        // 1️⃣  Apply migrations ----------------------------------------------------------------
         await db.Database.MigrateAsync();
 
-        /* 2) Ensure roles exist */
+        // 2️⃣  Ensure roles --------------------------------------------------------------------
         foreach (var role in new[]
         {
             UserRoles.Admin, UserRoles.User, UserRoles.Device, UserRoles.Worker
@@ -33,48 +38,99 @@ public static class DbSeeder
                 await roles.CreateAsync(new IdentityRole(role));
         }
 
-        /* 3) Seed ADMIN account (demo values – move to secret store) */
-        const string adminUser = "admin";
-        const string adminPwd = "Admin#123";   // change in real deployments
+        // 3️⃣  Seed built‑in accounts -----------------------------------------------------------
+        await EnsureUserAsync(users, UserRoles.Admin, "admin", "Admin#123");
+        await EnsureUserAsync(users, UserRoles.Worker, wc.Username, wc.Password);
 
-        if (await users.FindByNameAsync(adminUser) is null)
+        // 4️⃣  Demo regular users ---------------------------------------------------------------
+        await EnsureUserAsync(users, UserRoles.User, "alice", "Alice#123");
+        await EnsureUserAsync(users, UserRoles.User, "bob", "Bob#123");
+
+        await db.SaveChangesAsync();   // make sure Ids are generated before we use them
+
+        // lookup user Ids for assigning devices
+        var aliceId = (await users.FindByNameAsync("alice"))!.Id;
+        var bobId = (await users.FindByNameAsync("bob"))!.Id;
+
+        // 5️⃣  Devices + Settings ---------------------------------------------------------------
+        var demoDevices = new[]
+{
+    new { Mac = "AA:BB:CC:01", Name = "Greenhouse-A", OwnerId = (string?)aliceId, Active = true  },
+    new { Mac = "AA:BB:CC:02", Name = "Lab-Sensor",   OwnerId = (string?)bobId,   Active = false },
+    new { Mac = "AA:BB:CC:03", Name = "Field-Node-7", OwnerId = (string?)null,    Active = true  },
+    new { Mac = "AA:BB:CC:04", Name = "Sandbox-Test", OwnerId = (string?)null,    Active = false },
+};
+
+
+        foreach (var d in demoDevices)
         {
-            var admin = new User { UserName = adminUser };
-            await users.CreateAsync(admin, adminPwd);
-            await users.AddToRoleAsync(admin, UserRoles.Admin);
-            logger.LogInformation("Created default admin user");
-        }
+            if (await db.Devices.AnyAsync(x => x.Mac == d.Mac)) continue;   // idempotent
 
-        /* 4) Seed WORKER account from WorkerCredentials */
-        if (await users.FindByNameAsync(wc.Username) is null)
-        {
-            var worker = new User { UserName = wc.Username };
-            await users.CreateAsync(worker, wc.Password);
-            await users.AddToRoleAsync(worker, UserRoles.Worker);
-            logger.LogInformation("Created Worker user '{user}'", wc.Username);
-        }
-
-        /* 5) Seed demo device + settings (optional) */
-        const string mac = "AA:BB:CC:DD:EE:FF";
-
-        if (!await db.Devices.AnyAsync(d => d.Mac == mac))
-        {
             db.Devices.Add(new Device
             {
-                Mac = mac,
-                Name = "Greenhouse-Demo"
+                Mac = d.Mac,
+                Name = d.Name,
+                OwnerId = d.OwnerId
             });
 
-            db.SettingsSet.Add(new Settings    // <— use the correct DbSet
+            db.SettingsSet.Add(new Settings
             {
-                DeviceMac = mac,
-                Watering = new Watering { SoilMin = 30, SoilMax = 50, MaxPumpSeconds = 10, FertHours = 72 },
-                Lighting = new Lighting { LuxLow = 1500, OnHour = 6, OffHour = 22 },
+                DeviceMac = d.Mac,
+                Watering = new Watering { SoilMin = 30, SoilMax = 55, MaxPumpSeconds = 12, FertHours = 72 },
+                Lighting = new Lighting { LuxLow = 1200, OnHour = 6, OffHour = 22 },
                 Security = new Security { Armed = false }
             });
+        }
+        await db.SaveChangesAsync();
 
-            await db.SaveChangesAsync();
-            logger.LogInformation("Seeded demo device {mac}", mac);
+        // 6️⃣  Telemetry -----------------------------------------------------------------------
+        DateTime now = DateTime.UtcNow;
+        Random rnd = new();
+
+        foreach (var d in demoDevices)
+        {
+            // already telemetry newer than 24h? -> skip
+            bool anyRecent = await db.Telemetries.AnyAsync(t => t.DeviceMac == d.Mac && t.Timestamp >= now.AddHours(-24));
+            if (anyRecent) continue;
+
+            int historyHours = 48;
+            for (int i = 0; i < historyHours; i++)
+            {
+                var ts = now.AddHours(-i);
+                if (!d.Active && i == 0) ts = now.AddHours(-3); // make first sample 3 h old → inactive
+
+                db.Telemetries.Add(new Telemetry
+                {
+                    DeviceMac = d.Mac,
+                    Timestamp = ts,
+                    Temperature = (short)(20 + MathF.Sin(i / 3f) * 5),
+                    Humidity = (short)(50 + MathF.Cos(i / 4f) * 10),
+                    Soil = (short)(40 + MathF.Sin(i / 5f) * 15),
+                    Lux = (ushort)(800 + MathF.Sin(i / 2f) * 200),
+                    Level = (ushort)rnd.Next(0, 100),
+                    Motion = false,
+                    Tamper = rnd.NextDouble() < 0.05,
+                    AccelX = 0,
+                    AccelY = 0,
+                    AccelZ = 0,
+                    CfgRev = "seed‑1"
+                });
+            }
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation("Demo seeding completed");
+    }
+
+    // internal helper -----------------------------------------------------------
+    private static async Task EnsureUserAsync(UserManager<User> mgr, string role, string username, string password)
+    {
+        var user = await mgr.FindByNameAsync(username);
+        if (user is null)
+        {
+            user = new User { UserName = username };
+            await mgr.CreateAsync(user, password);
+            await mgr.AddToRoleAsync(user, role);
         }
     }
 }
