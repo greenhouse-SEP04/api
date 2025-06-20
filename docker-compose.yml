@@ -11,7 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       retries: 5
 
@@ -23,11 +23,21 @@ services:
     ports:
       - "8080:8080"
     environment:
-      ConnectionStrings__DefaultConnection: |
+      # same as ASPNETCORE_URLS in the Dockerfile, but here you can override if you want
+      ASPNETCORE_URLS: http://+:8080
+
+      # connection string for EF Core / DbContext
+      ConnectionStrings__DefaultConnection: >
         Host=db;Port=5432;Database=greenhouse;Username=postgres;Password=postgres
+
+      # JWT configuration
       JWT__ValidIssuer:   GreenhouseApi
       JWT__ValidAudience: GreenhouseApiUsers
       JWT__Secret:        CHANGE_ME_FOR_PROD
-      # worker seed account (pulled by DbSeeder)
+
+      # worker seed account pulled by your DbSeeder
       WorkerCredentials__Username: ml-worker
       WorkerCredentials__Password: Super!Secure!PW
+
+volumes:
+  pgdata:
